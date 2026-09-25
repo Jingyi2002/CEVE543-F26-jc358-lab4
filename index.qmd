@@ -77,14 +77,15 @@ colors = Makie.wong_colors()
 ### The data
 
 `load_water_level` downloads every hourly reading a NOAA tide gauge has published and caches it beside this notebook.
-Sewells Point sits in Norfolk, Virginia, at the mouth of Chesapeake Bay, and has reported since 1928.
+Fort Pulaski sits in Savannah, Georgia, at the mouth of the Savannah River, and has reported since 1928.
 
 ```{julia}
 #| solution: false
-station = "8638610"                                                    # <1>
+#| output: true
+station = "8670870"                                                    # <1>
 record = load_water_level(
     station;
-    name="Sewells Point",
+    name="Fort Pulaski",
     cache=joinpath(@__DIR__, "$station-hourly.csv"),                   # <2>
 )
 ```
@@ -98,6 +99,7 @@ The levels come back with units attached.
 
 ```{julia}
 #| solution: false
+#| output: true
 reading = record[1]
 @printf("%s at %s\n", reading.level, reading.time)
 @printf("in feet: %s\n", uconvert(u"ft", reading.level))               # <1>
@@ -112,6 +114,7 @@ reading = record[1]
 
 ```{julia}
 #| solution: false
+#| output: true
 annmax = AnnMaxRecord(record; detrend=:msl, units=u"ft")               # <1>
 ```
 
@@ -120,7 +123,7 @@ annmax = AnnMaxRecord(record; detrend=:msl, units=u"ft")               # <1>
    Try each one.
 
 An observed water level is the sum of mean sea level, the astronomical tide, storm surge, and vertical land motion.
-Sewells Point has both eustatic sea-level rise and subsidence, so its mean sea level rises about 4.6 mm/yr.
+Fort Pulaski has both eustatic sea-level rise and subsidence, so its mean sea level rises about 4.6 mm/yr.
 A stationary GEV requires that every year be drawn from the same distribution, so the trend must be removed first.
 Subtracting annual mean sea level removes the sea-level component but leaves the tide in the residual.
 A design study would remove the tide as well.
@@ -128,7 +131,7 @@ A design study would remove the tide as well.
 ```{julia}
 #| solution: false
 #| label: fig-detrend
-#| fig-cap: "Annual maxima at Sewells Point before and after removing mean sea level. The baseline is what was subtracted."
+#| fig-cap: "Annual maxima at Fort Pulaski before and after removing mean sea level. The baseline is what was subtracted."
 y = ustrip.(waterlevels(annmax))                                       # <1>
 raw = y .+ annmax.baseline .- mean(annmax.baseline[(end-4):end])     # <2>
 
@@ -151,6 +154,7 @@ Both follow [`Extremes.jl`](https://jojal5.github.io/Extremes.jl/dev/).
 
 ```{julia}
 #| solution: false
+#| output: true
 fit_mle = only(getdistribution(gevfit(y)))
 fit_lmom = gevfit_lmom(y)
 
@@ -196,6 +200,7 @@ Optimize over $\log\sigma$ so the scale stays positive.
 
 ```{julia}
 #| solution: false
+#| output: true
 function negative_loglik(θ, y)
     μ, log_σ, ξ = θ
     return -sum(my_gev_logpdf(yᵢ, μ, exp(log_σ), ξ) for yᵢ in y)       # <1>
@@ -262,8 +267,8 @@ fig
 
 #### Bootstrap confidence bands
 
-Each of those curves is one estimate from 96 years of data.
-A different 96 years from the same process would give different parameters and a different curve.
+Each of those curves is one estimate from 86 years of data.
+A different 86 years from the same process would give different parameters and a different curve.
 The bootstrap estimates that spread: resample the record with replacement, refit, and repeat.
 
 Bootstrap the L-moment fit rather than the maximum likelihood fit.
@@ -304,6 +309,7 @@ fig
 
 ```{julia}
 #| solution: false
+#| output: true
 for T in (10, 50, 100, 500)
     levels = [quantile(d, 1 - 1 / T) for d in boot_fits]
     @printf("%3d-yr: %.2f [%.2f, %.2f] ft\n", T, quantile(fit_lmom, 1 - 1 / T),
@@ -344,6 +350,7 @@ prior_df = DataFrame(sample(rng, gev_vague(y), Prior(), 1_000; progress=false)) 
 
 ```{julia}
 #| solution: false
+#| output: true
 function return_curves(df, periods; n_curves=200)                      # <1>
     curves = Vector{Vector{Float64}}()
     for i in 1:min(n_curves, nrow(df))
@@ -393,13 +400,13 @@ Choose a few return periods, state what you believe about the level at each, and
 #| solution: false
 #| output: false
 quantile_beliefs = [                                                   # <1>
-    (period=2, belief=Normal(5.0, 1.0)),
-    (period=100, belief=Normal(8.0, 2.5)),
-    (period=500, belief=Normal(9.5, 4.0)),
+    (period=2, belief=Normal(6.3, 0.5)),
+    (period=100, belief=Normal(8.0, 1.5)),
+    (period=500, belief=Normal(9.0, 3.0)),
 ]
 
 @model function gev_quantile(y, beliefs)
-    μ ~ Normal(5, 3)
+    μ ~ Normal(6, 3)
     σ ~ truncated(Normal(0, 2); lower=0.01)
     ξ ~ truncated(Normal(0, 0.2); lower=-0.5, upper=0.5)               # <2>
     d = GeneralizedExtremeValue(μ, σ, ξ)
@@ -412,8 +419,8 @@ quantile_beliefs = [                                                   # <1>
 end
 ```
 
-1. Each entry is a belief about one return level: the 2-year level is 5 ft with standard deviation 1 ft, the 100-year level is 8 ft with standard deviation 2.5 ft, and the 500-year level is 9.5 ft with standard deviation 4 ft.
-   **These numbers are for Sewells Point.**
+1. Each entry is a belief about one return level: the 2-year level is 6.3 ft with standard deviation 0.5 ft, the 100-year level is 8.0 ft with standard deviation 1.5 ft, and the 500-year level is 9.0 ft with standard deviation 3.0 ft.
+   **These numbers are for Fort Pulaski**, whose tidal range (about 7.3 ft, versus Sewells Point's 2.5 ft) puts its annual maxima several feet higher.
    A gauge with a different tidal range needs different ones.
 1. Bounding the shape rules out the distributions with no finite variance.
    This is a strong assumption; revisit it if the posterior for $\xi$ concentrates near a bound.
@@ -468,6 +475,7 @@ Check the chains before using them.
 
 ```{julia}
 #| solution: false
+#| output: true
 function check_chain(chain, label)                                     # <1>
     stats = DataFrame(summarystats(chain))
     divergences = sum(chain[:numerical_error])                         # <2>
@@ -518,6 +526,7 @@ The two posteriors differ most at long return periods, where the data constrain 
 
 ```{julia}
 #| solution: false
+#| output: true
 function return_level_summary(chain, period)                           # <1>
     df = DataFrame(chain)
     levels = [
@@ -562,7 +571,17 @@ Look at your gauge's record before choosing new numbers, and say what you change
 
 **Your answer.**
 
-> *Answer here*
+> *I changed the gauge to Fort Pulaski, Georgia (NOAA 8670870). The record contains 86 annual maxima from 1936--2025, so it satisfies the 50-year requirement. I kept the `:msl` detrending because the notebook needs the annual maxima to be approximately stationary before fitting the GEV. The detrended annual maxima range from about 5.77 to 8.85 ft.*
+
+> *The maximum-likelihood fit still worked. The hand-written optimizer reported `converged: true` and gave $\mu = 6.203, \sigma = 0.265, \xi = 0.144$* exactly matching the package MLE. This makes me confident that the hand-written likelihood and optimization are working correctly. The L-moment fit gave $\mu = 6.190, \sigma = 0.231, \xi = 0.266$*
+
+> *The two methods are close for location and scale, although they differ more in the shape parameter and therefore separate more at long return periods.*
+
+> *The main change I had to make was the quantile prior. Fort Pulaski has a much larger tidal range than Sewells Point, so the lower return-level assumptions used for Sewells Point would not fit this record. I used a 2-year level of $6.3 \pm 0.5 \text{ft}$, a 100-year level of  $8.0 \pm 1.5 \text{ft}$ and a 500-year level of $9.0 \pm 3.0 \text{ft}$.*
+
+> *These values are consistent with the observed annual maxima while still leaving a fairly wide range of plausible tail behavior. The Bayesian diagnostics also showed why the prior matters. The vague-prior chain didn't converge well. Its worst $\hat{R} = 1.597$ and it had 965 divergences. In contrast, the quantile-prior chain had $\hat{R} = 1.004$ an effective sample size of 1851, and zero divergences. Since $\hat{R}$ is close to 1 and there are no divergences, I would trust the quantile-prior posterior much more.*
+
+> *Overall, changing the gauge did not break the MLE or L-moment parts of the notebook. The main issue was that the prior had to be rescaled for Fort Pulaski. After doing that, the hand-written optimizer converged, the two frequentist fits were reasonably consistent, and the quantile-prior Bayesian fit had good convergence diagnostics.*
 
 
 ### The shape parameter
@@ -575,7 +594,18 @@ Explain why $\xi$ is the least well determined, and say which of the three you w
 
 **Your answer.**
 
-> *Answer here*
+> *For Fort Pulaski, the maximum likelihood estimate was*
+> *$\mu = 6.203$, $\sigma = 0.265$, and $\xi = 0.144$.*
+
+> *The hand-optimized result was the same, with*
+> *$\mu = 6.203$, $\sigma = 0.265$, and $\xi = 0.144$.*
+
+> *The L-moment estimate was*
+> *$\mu = 6.190$, $\sigma = 0.231$, and $\xi = 0.266$.*
+
+> *The three methods are very close for $\mu$ and $\sigma$, but they differ more for $\xi$. This makes sense because $\xi$ controls the tail of the distribution, so it is informed mainly by the few largest annual maxima and is therefore harder to estimate.*
+
+> *I would report the package maximum likelihood estimate to a client. The hand-optimized result gives the same answer, which is a good check that the likelihood was coded correctly. I would use the package result for reporting because it is the standard implementation and is less likely to contain a coding mistake.*
 
 
 ### Sensitivity to the prior
@@ -587,7 +617,11 @@ Using your prior predictive figures and your posterior intervals, say whether th
 
 **Your answer.**
 
-> *Answer here*
+> *For Fort Pulaski, the 500-year return level under the vague prior was 8.89 ft, with a 95\% credible interval from 8.12 to 11.03 ft. Under the quantile prior, it was 8.86 ft, with a 95\% credible interval from 8.04 to 10.49 ft. The median values are almost the same, but the vague prior gives a wider interval. However, the vague-prior posterior should be interpreted cautiously because its chain showed poor convergence diagnostics.*
+
+> *I wouldn't say the vague prior really lets the data speak for themselves here. Before seeing the data, it allows some unrealistic return levels, including values of several hundred feet. The quantile prior keeps the prior predictions in a more reasonable range while still allowing a wide spread.*
+
+> *The posterior results are fairly close, but the difference in the intervals shows that the prior still affects the tail. This matters most for the 500-year return level because the data contain very little information about such a rare event.*
 
 
 ### Reading a failed diagnostic
@@ -599,7 +633,9 @@ Say what the two numbers mean, whether the estimate can be used, and what you wo
 
 **Your answer.**
 
-> *Answer here*
+> *I would not use the 100-year return level yet. An $\hat{R}$ of 1.08 means the chains have not mixed well, since a well-converged chain should have $\hat{R}$ close to 1. The 47 divergences also show that the sampler is having trouble exploring the posterior.*
+
+> *I would ask them to rerun the model with a higher NUTS target acceptance rate and smaller step sizes, then check whether $\hat{R}$ moves close to 1 and the divergences drop to zero or nearly zero. I would only use the 100-year estimate after those diagnostics improve.*
 
 
 ### Reporting a design value
@@ -610,7 +646,11 @@ State the number and say what it rests on: which estimator, which detrending cho
 
 **Your answer.**
 
-> *Answer here*
+> *For Fort Pulaski, I would report a 100-year return level of 7.94 ft, with a 95\% credible interval from 7.51 to 8.71 ft. This estimate comes from the Bayesian fit with the quantile prior, using the annual maxima after `:msl` detrending.*
+
+> *I would use the quantile-prior result because its chains converged well, with $\hat{R}$ = 1.004 and no divergences. The vague-prior chain did not converge well.*
+
+> *Before using this value for an actual city design decision, I would want to check its sensitivity to the detrending choice and prior, confirm the GEV fit, and translate the detrended return level to an appropriate future design datum.*
 
 
 ## Turning it in
